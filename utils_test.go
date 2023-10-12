@@ -23,24 +23,6 @@ func Test_getOrCreate(t *testing.T) {
 			},
 			wantErr: true,
 		},
-		{
-			name: "fail, closed file",
-			args: args{
-				filename: "boop",
-			},
-			openFile: func(name string, flag int, perm fs.FileMode) (f *os.File, err error) {
-				if f, err = os.OpenFile(name, flag, perm); err != nil {
-					return
-				}
-
-				if err = f.Close(); err != nil {
-					return
-				}
-
-				return
-			},
-			wantErr: true,
-		},
 	}
 
 	for _, tt := range tests {

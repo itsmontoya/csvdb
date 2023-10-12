@@ -92,12 +92,25 @@ func (d *DB[T]) GetMerged(w io.Writer, keys ...string) (err error) {
 }
 
 func (d *DB[T]) Append(key string, es ...T) (filename string, err error) {
-	d.mux.Lock()
-	defer d.mux.Unlock()
-
 	if len(es) == 0 {
 		return
 	}
+
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	var f *os.File
+	filename = d.getFilename(key)
+	if f, err = getOrCreate(filename); err != nil {
+		return
+	}
+	defer f.Close()
+	return d.writeAndExport(filename, f, es)
+}
+
+func (d *DB[T]) AppendWithFunc(key string, fn func(*Rows) ([]T, error)) (filename string, err error) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
 
 	var f *os.File
 	filename = d.getFilename(key)
@@ -106,11 +119,13 @@ func (d *DB[T]) Append(key string, es ...T) (filename string, err error) {
 	}
 	defer f.Close()
 
-	if err = d.writeEntries(f, es); err != nil {
+	var es []T
+	r := makeRows(f)
+	if es, err = fn(&r); err != nil {
 		return
 	}
 
-	return d.export(filename, f)
+	return d.writeAndExport(filename, f, es)
 }
 
 func (d *DB[T]) Delete(key string) (err error) {
@@ -215,9 +230,29 @@ func (d *DB[T]) export(filename string, f *os.File) (createdFilename string, err
 	return d.b.Export(context.Background(), d.o.Name, filename, f)
 }
 
+func (d *DB[T]) writeAndExport(filename string, f *os.File, es []T) (newFilename string, err error) {
+	if len(es) == 0 {
+		return
+	}
+
+	if err = d.writeEntries(f, es); err != nil {
+		return
+	}
+
+	return d.export(filename, f)
+}
+
 func (d *DB[T]) writeEntries(f *os.File, es []T) (err error) {
+	if len(es) == 0 {
+		return
+	}
+
 	var info os.FileInfo
 	if info, err = f.Stat(); err != nil {
+		return
+	}
+
+	if _, err = f.Seek(0, io.SeekEnd); err != nil {
 		return
 	}
 

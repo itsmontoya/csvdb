@@ -1,7 +1,6 @@
 package csvdb
 
 import (
-	"io"
 	"os"
 	"time"
 )
@@ -9,15 +8,7 @@ import (
 var openFile = os.OpenFile
 
 func getOrCreate(filename string) (f *os.File, err error) {
-	if f, err = openFile(filename, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0644); err != nil {
-		return
-	}
-
-	if _, err = f.Seek(0, io.SeekEnd); err != nil {
-		return
-	}
-
-	return
+	return openFile(filename, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0644)
 }
 
 func isExpiredBasic(ttl time.Duration, info os.FileInfo) (expired bool) {
