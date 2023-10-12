@@ -375,6 +375,92 @@ func TestDB_GetMerged(t *testing.T) {
 	}
 }
 
+func TestDB_AppendWithFunc(t *testing.T) {
+	type args struct {
+		key string
+	}
+
+	type testcase struct {
+		name      string
+		init      func() (*DB[testentry], error)
+		args      args
+		wantCount int
+		wantErr   bool
+	}
+
+	tests := []testcase{
+		{
+			name: "basic",
+			init: func() (db *DB[testentry], err error) {
+				var opts Options
+				opts.Dir = fmt.Sprintf("test_%d", time.Now().UnixNano())
+				opts.Name = "foo"
+				opts.FileTTL = time.Hour * 24 * 7
+
+				b := &mockBackend{}
+				if db, err = New[testentry](opts, b); err != nil {
+					return
+				}
+
+				tvs := []testentry{
+					{
+						Foo: "1",
+						Bar: "1b",
+					},
+					{
+						Foo: "2",
+						Bar: "2b",
+					},
+					{
+						Foo: "3",
+						Bar: "3b",
+					},
+				}
+
+				if _, err = db.Append("foo", tvs...); err != nil {
+					return
+				}
+
+				return
+			},
+			args: args{
+				key: "foo",
+			},
+			wantCount: 3,
+			wantErr:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d, err := tt.init()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer os.RemoveAll(d.o.Dir)
+
+			var count int
+			_, err = d.AppendWithFunc(tt.args.key, func(r *Rows) (es []testentry, err error) {
+				err = r.ForEach(func(values []string) (err error) {
+					count++
+					return
+				})
+				return
+			})
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("DB.Get() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if count != tt.wantCount {
+				t.Errorf("DB.Get() count = %v, wantCount %v", count, tt.wantCount)
+				return
+			}
+		})
+	}
+}
+
 func TestDB_asyncpurge(t *testing.T) {
 	type testcase struct {
 		name      string
