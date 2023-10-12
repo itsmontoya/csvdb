@@ -53,6 +53,10 @@ func Test_getOrCreate(t *testing.T) {
 				openFile = tt.openFile
 			}
 
+			if tt.args.filename != "" {
+				defer os.Remove(tt.args.filename)
+			}
+
 			_, err := getOrCreate(tt.args.filename)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("getOrCreate() error = %v, wantErr %v", err, tt.wantErr)
