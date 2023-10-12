@@ -375,6 +375,170 @@ func TestDB_GetMerged(t *testing.T) {
 	}
 }
 
+func TestDB_asyncpurge(t *testing.T) {
+	type testcase struct {
+		name      string
+		init      func() (*DB[testentry], error)
+		wantCount int
+	}
+
+	tests := []testcase{
+		{
+			name: "basic",
+			init: func() (db *DB[testentry], err error) {
+				var opts Options
+				opts.Dir = fmt.Sprintf("test_%d", time.Now().UnixNano())
+				opts.Name = "foo"
+				opts.FileTTL = time.Millisecond
+
+				b := &mockBackend{}
+				var d DB[testentry]
+				if d, err = makeDB[testentry](opts, b); err != nil {
+					return
+				}
+
+				tvs := []testentry{
+					{
+						Foo: "1",
+						Bar: "1b",
+					},
+					{
+						Foo: "2",
+						Bar: "2b",
+					},
+					{
+						Foo: "3",
+						Bar: "3b",
+					},
+				}
+
+				if _, err = d.Append("foo", tvs...); err != nil {
+					return
+				}
+
+				time.Sleep(time.Millisecond * 10)
+				db = &d
+				return
+			},
+			wantCount: 0,
+		},
+		{
+			name: "with remaining",
+			init: func() (db *DB[testentry], err error) {
+				var opts Options
+				opts.Dir = fmt.Sprintf("test_%d", time.Now().UnixNano())
+				opts.Name = "foo"
+				opts.FileTTL = time.Millisecond
+
+				b := &mockBackend{}
+				var d DB[testentry]
+				if d, err = makeDB[testentry](opts, b); err != nil {
+					return
+				}
+
+				tvs := []testentry{
+					{
+						Foo: "1",
+						Bar: "1b",
+					},
+					{
+						Foo: "2",
+						Bar: "2b",
+					},
+					{
+						Foo: "3",
+						Bar: "3b",
+					},
+				}
+
+				if _, err = d.Append("foo", tvs...); err != nil {
+					return
+				}
+
+				time.Sleep(time.Millisecond * 10)
+
+				if _, err = d.Append("bar", tvs...); err != nil {
+					return
+				}
+
+				db = &d
+				return
+			},
+			wantCount: 1,
+		},
+		{
+			name: "with no TTL",
+			init: func() (db *DB[testentry], err error) {
+				var opts Options
+				opts.Dir = fmt.Sprintf("test_%d", time.Now().UnixNano())
+				opts.Name = "foo"
+				opts.FileTTL = 0
+
+				b := &mockBackend{}
+				var d DB[testentry]
+				if d, err = makeDB[testentry](opts, b); err != nil {
+					return
+				}
+
+				tvs := []testentry{
+					{
+						Foo: "1",
+						Bar: "1b",
+					},
+					{
+						Foo: "2",
+						Bar: "2b",
+					},
+					{
+						Foo: "3",
+						Bar: "3b",
+					},
+				}
+
+				if _, err = d.Append("foo", tvs...); err != nil {
+					return
+				}
+
+				time.Sleep(time.Millisecond * 10)
+
+				if _, err = d.Append("bar", tvs...); err != nil {
+					return
+				}
+
+				db = &d
+				return
+			},
+			wantCount: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d, err := tt.init()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer os.RemoveAll(d.o.Dir)
+
+			d.asyncPurge()
+
+			var count int
+			err = d.forEach(func(key string, info fs.FileInfo) (err error) {
+				count++
+				return
+			})
+
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if count != tt.wantCount {
+				t.Fatalf("DB.purge() count = %v, wantCount = %v", count, tt.wantCount)
+			}
+		})
+	}
+}
+
 func TestDB_purge(t *testing.T) {
 	type testcase struct {
 		name      string
