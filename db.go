@@ -7,7 +7,6 @@ import (
 	"errors"
 	"io"
 	"io/fs"
-	"log"
 	"os"
 	"path"
 	"path/filepath"
@@ -198,7 +197,7 @@ func (d *DB[T]) attemptDownload(filename string) (f *os.File, err error) {
 		return
 	}
 
-	log.Printf("error downloading <%s>: %v\n", filename, err)
+	d.o.Logger.Printf("error downloading <%s>: %v\n", filename, err)
 
 	if os.IsNotExist(err) {
 		err = ErrEntryNotFound
@@ -305,7 +304,7 @@ func (d *DB[T]) scan() {
 
 func (d *DB[T]) asyncPurge() {
 	if err := d.purge(); err != nil {
-		log.Printf("csvdb.DB[%s].asyncPurge(): error purging: %v\n", d.o.Name, err)
+		d.o.Logger.Printf("csvdb.DB[%s].asyncPurge(): error purging: %v\n", d.o.Name, err)
 	}
 }
 
