@@ -2,6 +2,7 @@ package csvdb
 
 import (
 	"errors"
+	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -16,6 +17,8 @@ var (
 type Options struct {
 	Name string `json:"name" toml:"name"`
 	Dir  string `json:"dir" toml:"dir"`
+
+	Logger Logger
 
 	PurgeInterval time.Duration `json:"purgeInterval" toml:"purge-interval"`
 
@@ -56,6 +59,10 @@ func (o *Options) fill() {
 	if o.PurgeInterval == 0 {
 		// Set default purge interval for an hour
 		o.PurgeInterval = time.Hour
+	}
+
+	if o.Logger == nil {
+		o.Logger = log.New(os.Stdout, "csvdb", log.Ldate|log.Ltime)
 	}
 }
 
