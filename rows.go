@@ -2,7 +2,9 @@ package csvdb
 
 import (
 	"encoding/csv"
+	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"sync"
 )
@@ -25,10 +27,20 @@ func (r *Rows) ForEach(fn func([]string) error) (err error) {
 		return
 	}
 
+	var info fs.FileInfo
+	if info, err = r.f.Stat(); err != nil {
+		return
+	}
+
+	if info.Size() == 0 {
+		return
+	}
+
 	rr := csv.NewReader(r.f)
 
 	// Read past Header
 	if _, err = rr.Read(); err != nil {
+		err = fmt.Errorf("Rows.ForEach() error reading headers: %v", err)
 		return
 	}
 
