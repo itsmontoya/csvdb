@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/csv"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -99,21 +100,29 @@ func (d *DB[T]) Append(key string, es ...T) (filename string, err error) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
-	var f *os.File
-	filename = d.getFilename(key)
+	var (
+		f    *os.File
+		name string
+	)
+
+	name, filename = d.getFilename(key)
 	if f, err = getOrCreate(filename); err != nil {
 		return
 	}
 	defer f.Close()
-	return d.writeAndExport(filename, f, es)
+	return d.writeAndExport(name, f, es)
 }
 
 func (d *DB[T]) AppendWithFunc(key string, fn func(*Rows) ([]T, error)) (filename string, err error) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
-	var f *os.File
-	filename = d.getFilename(key)
+	var (
+		f    *os.File
+		name string
+	)
+
+	name, filename = d.getFilename(key)
 	if f, err = getOrCreate(filename); err != nil {
 		return
 	}
@@ -125,16 +134,16 @@ func (d *DB[T]) AppendWithFunc(key string, fn func(*Rows) ([]T, error)) (filenam
 		return
 	}
 
-	return d.writeAndExport(filename, f, es)
+	return d.writeAndExport(name, f, es)
 }
 
 func (d *DB[T]) Delete(key string) (err error) {
-	filename := d.getFilename(key)
+	_, filename := d.getFilename(key)
 	return os.Remove(filename)
 }
 
 func (d *DB[T]) getOrDownload(key string) (f fs.File, err error) {
-	filename := d.getFilename(key)
+	_, filename := d.getFilename(key)
 	f, err = os.Open(filename)
 	switch {
 	case err == nil:
@@ -146,8 +155,10 @@ func (d *DB[T]) getOrDownload(key string) (f fs.File, err error) {
 	}
 }
 
-func (d *DB[T]) getFilename(key string) (filename string) {
-	return path.Join(d.getFullPath(), key+".csv")
+func (d *DB[T]) getFilename(key string) (name, filename string) {
+	name = fmt.Sprintf("%s.%s.csv", d.o.Name, key)
+	filename = path.Join(d.getFullPath(), name)
+	return
 }
 
 func (d *DB[T]) getFullPath() (fullPath string) {
@@ -236,10 +247,16 @@ func (d *DB[T]) writeAndExport(filename string, f *os.File, es []T) (newFilename
 	}
 
 	if err = d.writeEntries(f, es); err != nil {
+		err = fmt.Errorf("csvdb.writeAndExport() error writing entries: %v", err)
 		return
 	}
 
-	return d.export(filename, f)
+	if newFilename, err = d.export(filename, f); err != nil {
+		err = fmt.Errorf("csvdb.writeAndExport() error exporting entries: %v", err)
+		return
+	}
+
+	return
 }
 
 func (d *DB[T]) writeEntries(f *os.File, es []T) (err error) {
