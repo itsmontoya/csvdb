@@ -20,7 +20,8 @@ type Options struct {
 
 	Logger Logger
 
-	PurgeInterval time.Duration `json:"purgeInterval" toml:"purge-interval"`
+	ExportInterval time.Duration `json:"exportInterval" toml:"export-interval"`
+	PurgeInterval  time.Duration `json:"purgeInterval" toml:"purge-interval"`
 
 	// FileTTL is the file duration all files
 	// Note: This value is used to generate a basic ExpiryMonitor.
@@ -59,6 +60,11 @@ func (o *Options) fill() {
 	if o.PurgeInterval == 0 {
 		// Set default purge interval for an hour
 		o.PurgeInterval = time.Hour
+	}
+
+	if o.ExportInterval == 0 {
+		// Set default export interval for fifteen minutes
+		o.ExportInterval = time.Minute * 15
 	}
 
 	if o.Logger == nil {
