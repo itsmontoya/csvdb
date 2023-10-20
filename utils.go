@@ -1,6 +1,7 @@
 package csvdb
 
 import (
+	"context"
 	"os"
 	"time"
 )
@@ -23,5 +24,16 @@ func isExpiredBasic(ttl time.Duration, info os.FileInfo) (expired bool) {
 func basicExpiryMonitor(fileTTL time.Duration) ExpiryMonitor {
 	return func(filepath string, info os.FileInfo) (expired bool) {
 		return isExpiredBasic(fileTTL, info)
+	}
+}
+
+func scan(ctx context.Context, fn func(), interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	for range ticker.C {
+		select {
+		case <-ctx.Done():
+		default:
+		}
+		go fn()
 	}
 }

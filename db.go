@@ -18,16 +18,21 @@ import (
 var (
 	// ErrEntryNotFound is returned when a requested key does not exist
 	ErrEntryNotFound = errors.New("entry not found")
+	// ErrExportIsActive is returned when a export is attempted to start while one is still running
+	ErrExportIsActive = errors.New("cannot start export as export is still active. If this error is frequent, consider increasing your ExportInterval values")
 	// ErrPurgeIsActive is returned when a purge is attempted to start while one is still running
 	ErrPurgeIsActive = errors.New("cannot start purge as purge is still active. If this error is frequent, consider increasing your PurgeInterval values")
 )
 
-func New[T Entry](o Options, b Backend) (db *DB[T], err error) {
+func New[T Entry](ctx context.Context, o Options, b Backend) (db *DB[T], err error) {
 	var d DB[T]
 	if d, err = makeDB[T](o, b); err != nil {
 		return
 	}
 
+	d.ctx, d.cancel = context.WithCancel(ctx)
+	go scan(d.ctx, d.asyncBackup, o.ExportInterval)
+	go scan(d.ctx, d.asyncPurge, o.PurgeInterval)
 	go d.scan()
 	db = &d
 	return
@@ -53,11 +58,15 @@ func makeDB[T Entry](o Options, b Backend) (d DB[T], err error) {
 
 type DB[T Entry] struct {
 	mux  sync.RWMutex
+	emux sync.Mutex
 	pmux sync.Mutex
 
 	o Options
 
 	b Backend
+
+	ctx    context.Context
+	cancel func()
 }
 
 func (d *DB[T]) Get(w io.Writer, key string) (err error) {
@@ -92,7 +101,7 @@ func (d *DB[T]) GetMerged(w io.Writer, keys ...string) (err error) {
 	return d.getMergedFile(w, keys)
 }
 
-func (d *DB[T]) Append(key string, es ...T) (filename string, err error) {
+func (d *DB[T]) Append(key string, es ...T) (err error) {
 	if len(es) == 0 {
 		return
 	}
@@ -101,28 +110,28 @@ func (d *DB[T]) Append(key string, es ...T) (filename string, err error) {
 	defer d.mux.Unlock()
 
 	var (
-		f    *os.File
-		name string
+		f        *os.File
+		filename string
 	)
 
-	name, filename = d.getFilename(key)
+	_, filename = d.getFilename(key)
 	if f, err = getOrCreate(filename); err != nil {
 		return
 	}
 	defer f.Close()
-	return d.writeAndExport(name, f, es)
+	return d.writeEntries(f, es)
 }
 
-func (d *DB[T]) AppendWithFunc(key string, fn func(*Rows) ([]T, error)) (filename string, err error) {
+func (d *DB[T]) AppendWithFunc(key string, fn func(*Rows) ([]T, error)) (err error) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
 	var (
-		f    *os.File
-		name string
+		f        *os.File
+		filename string
 	)
 
-	name, filename = d.getFilename(key)
+	_, filename = d.getFilename(key)
 	if f, err = getOrCreate(filename); err != nil {
 		return
 	}
@@ -134,12 +143,17 @@ func (d *DB[T]) AppendWithFunc(key string, fn func(*Rows) ([]T, error)) (filenam
 		return
 	}
 
-	return d.writeAndExport(name, f, es)
+	return d.writeEntries(f, es)
 }
 
 func (d *DB[T]) Delete(key string) (err error) {
 	_, filename := d.getFilename(key)
 	return os.Remove(filename)
+}
+
+func (d *DB[T]) Close() (err error) {
+	d.cancel()
+	return d.backup()
 }
 
 func (d *DB[T]) getOrDownload(key string) (f fs.File, err error) {
@@ -233,30 +247,31 @@ func (d *DB[T]) attemptDownload(filename string) (f *os.File, err error) {
 	return
 }
 
-func (d *DB[T]) export(filename string, f *os.File) (createdFilename string, err error) {
-	if _, err = f.Seek(0, 0); err != nil {
-		return
-	}
-
-	return d.b.Export(context.Background(), d.o.Name, filename, f)
-}
-
-func (d *DB[T]) writeAndExport(filename string, f *os.File, es []T) (newFilename string, err error) {
-	if len(es) == 0 {
-		return
-	}
-
-	if err = d.writeEntries(f, es); err != nil {
-		err = fmt.Errorf("csvdb.writeAndExport() error writing entries: %v", err)
-		return
-	}
-
-	if newFilename, err = d.export(filename, f); err != nil {
-		err = fmt.Errorf("csvdb.writeAndExport() error exporting entries: %v", err)
-		return
+func (d *DB[T]) exportAll(exportable []string) (err error) {
+	for _, name := range exportable {
+		if err = d.export(name); err != nil {
+			err = fmt.Errorf("error exporting <%s>: %v", name, err)
+			return
+		}
 	}
 
 	return
+}
+
+func (d *DB[T]) export(filename string) (err error) {
+	var f *os.File
+	filepath := path.Join(d.getFullPath(), filename)
+	if f, err = os.Open(filepath); err != nil {
+		err = fmt.Errorf("error opening <%s> for export: %v", filepath, err)
+		return
+	}
+	defer f.Close()
+
+	if _, err = d.b.Export(context.Background(), d.o.Name, filename, f); err != nil {
+		return
+	}
+
+	return d.setLastExported(filename)
 }
 
 func (d *DB[T]) writeEntries(f *os.File, es []T) (err error) {
@@ -305,7 +320,34 @@ func (d *DB[T]) forEach(fn func(key string, info os.FileInfo) error) (err error)
 		}
 
 		base := filepath.Base(path)
+
 		return fn(base, info)
+	})
+
+	return
+}
+
+func (d *DB[T]) getExportable() (exportable []string, err error) {
+	// TODO: Uncomment this when we implement a thread-safe downloader.
+	// Currently, multiple readers can download the same file and cause
+	// race conditions.
+	// d.mux.RLock()
+	// defer d.mux.RUnlock()
+
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	exportable = make([]string, 0, 32)
+	err = d.forEach(func(key string, info fs.FileInfo) (err error) {
+		lastExported := d.getLastExported(key)
+
+		if lastExported.After(info.ModTime()) {
+			// We exported since our last update, return
+			return nil
+		}
+
+		exportable = append(exportable, info.Name())
+		return
 	})
 
 	return
@@ -323,6 +365,7 @@ func (d *DB[T]) getExpired() (expired []string, err error) {
 
 	expired = make([]string, 0, 32)
 	err = d.forEach(func(key string, info fs.FileInfo) (err error) {
+
 		if !d.o.ExpiryMonitor(key, info) {
 			return
 		}
@@ -354,12 +397,6 @@ func (d *DB[T]) scan() {
 	}
 }
 
-func (d *DB[T]) asyncPurge() {
-	if err := d.purge(); err != nil {
-		d.o.Logger.Printf("csvdb.DB[%s].asyncPurge(): error purging: %v\n", d.o.Name, err)
-	}
-}
-
 func (d *DB[T]) purge() (err error) {
 	if !d.pmux.TryLock() {
 		return ErrPurgeIsActive
@@ -372,4 +409,54 @@ func (d *DB[T]) purge() (err error) {
 	}
 
 	return d.removeAll(expired)
+}
+
+func (d *DB[T]) asyncBackup() {
+	if err := d.backup(); err != nil {
+		d.o.Logger.Printf("csvdb.DB[%s].asyncBackup(): error exporting: %v\n", d.o.Name, err)
+	}
+}
+
+func (d *DB[T]) asyncPurge() {
+	if err := d.purge(); err != nil {
+		d.o.Logger.Printf("csvdb.DB[%s].asyncPurge(): error purging: %v\n", d.o.Name, err)
+	}
+}
+
+func (d *DB[T]) backup() (err error) {
+	if !d.emux.TryLock() {
+		return ErrExportIsActive
+	}
+	defer d.emux.Unlock()
+
+	var exportable []string
+	if exportable, err = d.getExportable(); err != nil {
+		return
+	}
+
+	return d.exportAll(exportable)
+}
+
+func (d *DB[T]) setLastExported(name string) (err error) {
+	var f *os.File
+	filename := path.Join(d.getFullPath(), name)
+	if f, err = os.Create(filename + ".exported"); err != nil {
+		return
+	}
+
+	return f.Close()
+}
+
+func (d *DB[T]) getLastExported(name string) (t time.Time) {
+	filename := path.Join(d.getFullPath(), name)
+	exported, err := os.Stat(filename + ".exported")
+	switch {
+	case err == nil:
+		return exported.ModTime()
+	case os.IsNotExist(err):
+		return
+	default:
+		fmt.Printf("csvdb[%s].getExportable() error getting filestat for exported file marker: %v\n", d.o.Name, err)
+		return
+	}
 }
