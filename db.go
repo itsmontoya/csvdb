@@ -31,8 +31,8 @@ func New[T Entry](ctx context.Context, o Options, b Backend) (db *DB[T], err err
 	}
 
 	d.ctx, d.cancel = context.WithCancel(ctx)
-	go scan(d.ctx, d.asyncBackup, o.ExportInterval)
-	go scan(d.ctx, d.asyncPurge, o.PurgeInterval)
+	go scan(d.ctx, d.asyncBackup, d.o.ExportInterval)
+	go scan(d.ctx, d.asyncPurge, d.o.PurgeInterval)
 	db = &d
 	return
 }
