@@ -33,7 +33,6 @@ func New[T Entry](ctx context.Context, o Options, b Backend) (db *DB[T], err err
 	d.ctx, d.cancel = context.WithCancel(ctx)
 	go scan(d.ctx, d.asyncBackup, o.ExportInterval)
 	go scan(d.ctx, d.asyncPurge, o.PurgeInterval)
-	go d.scan()
 	db = &d
 	return
 }
@@ -388,13 +387,6 @@ func (d *DB[T]) removeAll(list []string) (err error) {
 	}
 
 	return
-}
-
-func (d *DB[T]) scan() {
-	ticker := time.NewTicker(d.o.PurgeInterval)
-	for range ticker.C {
-		go d.asyncPurge()
-	}
 }
 
 func (d *DB[T]) purge() (err error) {
