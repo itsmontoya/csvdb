@@ -156,13 +156,13 @@ func (d *DB[T]) Close() (err error) {
 }
 
 func (d *DB[T]) getOrDownload(key string) (f fs.File, err error) {
-	_, filename := d.getFilename(key)
+	name, filename := d.getFilename(key)
 	f, err = os.Open(filename)
 	switch {
 	case err == nil:
 		return
 	case os.IsNotExist(err):
-		return d.attemptDownload(filename)
+		return d.attemptDownload(name, filename)
 	default:
 		return
 	}
@@ -227,12 +227,12 @@ func (d *DB[T]) appendFile(w io.Writer, writeHeader bool, key string) (ok bool, 
 	return
 }
 
-func (d *DB[T]) attemptDownload(filename string) (f *os.File, err error) {
+func (d *DB[T]) attemptDownload(name, filename string) (f *os.File, err error) {
 	if f, err = os.Create(filename); err != nil {
 		return
 	}
 
-	if err = d.b.Import(context.Background(), d.o.Name, filename, f); err == nil {
+	if err = d.b.Import(context.Background(), d.o.Name, name, f); err == nil {
 		return
 	}
 
