@@ -18,6 +18,8 @@ import (
 var (
 	// ErrEntryNotFound is returned when a requested key does not exist
 	ErrEntryNotFound = errors.New("entry not found")
+	// ErrBackendNotSet is returned when the backend is unset
+	ErrBackendNotSet = errors.New("backend not set")
 	// ErrExportIsActive is returned when a export is attempted to start while one is still running
 	ErrExportIsActive = errors.New("cannot start export as export is still active. If this error is frequent, consider increasing your ExportInterval values")
 	// ErrPurgeIsActive is returned when a purge is attempted to start while one is still running
@@ -208,6 +210,9 @@ func (d *DB[T]) appendFile(w io.Writer, writeHeader bool, key string) (ok bool, 
 	case ErrEntryNotFound:
 		err = nil
 		return
+	case ErrBackendNotSet:
+		err = nil
+		return
 	default:
 		return
 	}
@@ -228,6 +233,11 @@ func (d *DB[T]) appendFile(w io.Writer, writeHeader bool, key string) (ok bool, 
 }
 
 func (d *DB[T]) attemptDownload(name, filename string) (f *os.File, err error) {
+	if d.b == nil {
+		err = ErrBackendNotSet
+		return
+	}
+
 	if f, err = os.Create(filename); err != nil {
 		return
 	}
