@@ -268,6 +268,11 @@ func (d *DB[T]) exportAll(exportable []string) (err error) {
 }
 
 func (d *DB[T]) export(filename string) (err error) {
+	if d.b == nil {
+		err = ErrBackendNotSet
+		return
+	}
+
 	var f *os.File
 	filepath := path.Join(d.getFullPath(), filename)
 	if f, err = os.Open(filepath); err != nil {
