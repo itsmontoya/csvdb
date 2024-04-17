@@ -246,11 +246,12 @@ func (d *DB[T]) attemptDownload(name, filename string) (f *os.File, err error) {
 		return
 	}
 
+	d.o.Logger.Printf("error downloading <%s>: %v\n", filename, err)
+
 	if os.IsNotExist(err) {
 		err = ErrEntryNotFound
 	}
 
-	d.o.Logger.Printf("error downloading <%s>: %v\n", filename, err)
 	if err := f.Close(); err != nil {
 		fmt.Printf("csvdb.attemptDownload(): error closing empty file: %v\n", err)
 	}
