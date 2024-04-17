@@ -250,7 +250,14 @@ func (d *DB[T]) attemptDownload(name, filename string) (f *os.File, err error) {
 
 	if os.IsNotExist(err) {
 		err = ErrEntryNotFound
-		return
+	}
+
+	if err := f.Close(); err != nil {
+		fmt.Printf("csvdb.attemptDownload(): error closing empty file: %v\n", err)
+	}
+
+	if err := os.Remove(filename); err != nil {
+		fmt.Printf("csvdb.attemptDownload(): error purging empty file: %v\n", err)
 	}
 
 	return
