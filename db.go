@@ -242,8 +242,12 @@ func (d *DB[T]) attemptDownload(name, filename string) (f *os.File, err error) {
 		return
 	}
 
-	if err = d.b.Import(context.Background(), d.o.Name, name, f); err == nil || !os.IsNotExist(err) {
+	if err = d.b.Import(context.Background(), d.o.Name, name, f); err == nil {
 		return
+	}
+
+	if os.IsNotExist(err) {
+		err = ErrEntryNotFound
 	}
 
 	d.o.Logger.Printf("error downloading <%s>: %v\n", filename, err)
