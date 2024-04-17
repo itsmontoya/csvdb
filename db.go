@@ -242,15 +242,17 @@ func (d *DB[T]) attemptDownload(name, filename string) (f *os.File, err error) {
 		return
 	}
 
-	if err = d.b.Import(context.Background(), d.o.Name, name, f); err == nil {
+	if err = d.b.Import(context.Background(), d.o.Name, name, f); err == nil || !os.IsNotExist(err) {
 		return
 	}
 
 	d.o.Logger.Printf("error downloading <%s>: %v\n", filename, err)
+	if err := f.Close(); err != nil {
+		fmt.Printf("csvdb.attemptDownload(): error closing empty file: %v\n", err)
+	}
 
-	if os.IsNotExist(err) {
-		err = ErrEntryNotFound
-		return
+	if err := os.Remove(filename); err != nil {
+		fmt.Printf("csvdb.attemptDownload(): error purging empty file: %v\n", err)
 	}
 
 	return
