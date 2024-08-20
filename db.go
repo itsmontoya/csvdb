@@ -243,6 +243,7 @@ func (d *DB[T]) attemptDownload(name, filename string) (f *os.File, err error) {
 	}
 
 	if err = d.b.Import(context.Background(), d.o.Name, name, f); err == nil {
+		_, err = f.Seek(0, 0)
 		return
 	}
 
